@@ -1,17 +1,14 @@
 # Databricks notebook source
 # DBTITLE 1,Cell 1
-# Databricks notebook source
-
 from src.auth import login
 from src.metadata import get_metadata
+from config.credentials import EMAIL, PASSWORD
 #from src.storage import save_metadata
 
 # --------------------------------------------------
 # Login
 # --------------------------------------------------
 
-EMAIL = "admin@openmrsg360.org"
-PASSWORD = "g360!MalawiD4ta@2006"
 
 token = login(EMAIL, PASSWORD)
 
