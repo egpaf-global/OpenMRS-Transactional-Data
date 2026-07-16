@@ -1,8 +1,10 @@
 # Databricks notebook source
 # DBTITLE 1,Cell 1
+import importlib
+import src.auth
+importlib.reload(src.auth)
 from src.auth import login
 from src.metadata import get_metadata
-from config.credentials import EMAIL, PASSWORD
 #from src.storage import save_metadata
 
 # --------------------------------------------------
@@ -10,7 +12,7 @@ from config.credentials import EMAIL, PASSWORD
 # --------------------------------------------------
 
 
-token = login(EMAIL, PASSWORD)
+token = login()
 
 print("Authentication successful")
 
@@ -19,7 +21,6 @@ print("Authentication successful")
 # --------------------------------------------------
 
 metadata_types = [
-    "location",
     "program",
     "encounter_type"
 ]

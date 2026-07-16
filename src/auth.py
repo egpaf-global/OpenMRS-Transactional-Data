@@ -1,13 +1,15 @@
 import requests
-from src.config import BASE_URL, LOGIN_ENDPOINT
+from src.settings import BASE_URL, LOGIN_ENDPOINT
+from config.credentials import EMAIL, PASSWORD
 
-def login(email, password):
+
+def login():
 
     response = requests.post(
         f"{BASE_URL}{LOGIN_ENDPOINT}",
         json={
-            "email": email,
-            "password": password
+            "email": EMAIL,
+            "password": PASSWORD
         }
     )
 
