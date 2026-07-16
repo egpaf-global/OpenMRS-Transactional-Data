@@ -21,8 +21,15 @@ print("Authentication successful")
 # --------------------------------------------------
 
 metadata_types = [
+    "concept_name",
+    "encounter_type",
+    "order_type",
     "program",
-    "encounter_type"
+    "program_workflow",
+    "relationship_type",
+    "drug", 
+    "program_workflow_state",
+    "location"
 ]
 
 # --------------------------------------------------
