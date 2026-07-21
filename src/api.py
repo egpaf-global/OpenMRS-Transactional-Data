@@ -1,6 +1,6 @@
 import requests
 
-from src.config import BASE_URL
+from src.settings import BASE_URL
 
 def get(endpoint, token):
 
