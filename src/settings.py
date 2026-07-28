@@ -1,48 +1,34 @@
 """
-Glaser360 Configuration
+Application configuration.
 """
 
-# =============================================================================
-# API CONFIGURATION
-# =============================================================================
+# ============================================
+# API Configuration
+# ============================================
 
 BASE_URL = "http://3.134.109.192:3012"
 
 API_VERSION = "v1"
 
 LOGIN_ENDPOINT = f"/api/{API_VERSION}/login"
-
+METADATA_ENDPOINT = f"/api/{API_VERSION}/openmrs/metadata"
 TRANSACTION_ENDPOINT = f"/api/{API_VERSION}/openmrs/transactions"
 
-METADATA_ENDPOINT = f"/api/{API_VERSION}/openmrs/metadata"
+
+# ============================================
+# Databricks Unity Catalog
+# ============================================
+
+CATALOG = "programsdev"
+SCHEMA = "malawi"
 
 
-# =============================================================================
-# DELTA TABLES
-# =============================================================================
+# ============================================
+# Synchronisation
+# ============================================
 
-BRONZE_DATABASE = "bronze"
-
-SILVER_DATABASE = "silver"
-
-GOLD_DATABASE = "gold"
-
-
-# =============================================================================
-# INGESTION SETTINGS
-# =============================================================================
-
-DEFAULT_BATCH_SIZE = 100
-
-DEFAULT_TIMEOUT = 120
-
-DEFAULT_TRANSACTION_TYPE = "encounter"
-
-
-# =============================================================================
-# DEFAULT SYNC VALUES
-# =============================================================================
+DEFAULT_PAGE_SIZE = 1000
+REQUEST_TIMEOUT = 120
 
 INITIAL_SYNC_ID = 0
-
 INITIAL_SYNC_DATETIME = "1900-01-01T00:00:00Z"
