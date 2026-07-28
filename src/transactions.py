@@ -1,22 +1,26 @@
 from .api import get
 from .config import TRANSACTION_ENDPOINT
 
+
 def get_transactions(
-        token,
-        transaction_type,
-        location_id,
-        last_sync_id,
-        last_sync_datetime,
-        limit
+    token,
+    transaction_type,
+    location_id,
+    last_sync_id=0,
+    last_sync_datetime=None,
+    limit=1000
 ):
 
-    endpoint = (
-        f"{TRANSACTION_ENDPOINT}"
-        f"?type={transaction_type}"
-        f"&location_id={location_id}"
-        f"&last_sync_id={last_sync_id}"
-        f"&last_sync_transaction_datetime={last_sync_datetime}"
-        f"&limit={limit}"
-    )
+    params = {
+        "type": transaction_type,
+        "location_id": location_id,
+        "last_sync_id": last_sync_id,
+        "last_sync_transaction_datetime": last_sync_datetime,
+        "limit": limit
+    }
 
-    return get(endpoint, token)
+    return get(
+        TRANSACTION_ENDPOINT,
+        token,
+        params=params
+    )

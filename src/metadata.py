@@ -1,5 +1,5 @@
 from src.api import get
-from src.config import METADATA_ENDPOINT
+from src.settings import METADATA_ENDPOINT
 
 
 #function to get metadata
