@@ -5,23 +5,42 @@
 # ///
 # DBTITLE 1,Cell 1
 import importlib
+
 import src.auth
+import src.metadata
+import src.settings
+import src.storage
+
+# Reload modules during development
+importlib.reload(src.settings)
 importlib.reload(src.auth)
+importlib.reload(src.metadata)
+importlib.reload(src.storage)
+
 from src.auth import login
 from src.metadata import get_metadata
-from src.storage import save_metadata
+from src.storage import (
+    save_metadata,
+    get_table_names
+)
+
+from src.settings import (
+    CATALOG,
+    SCHEMA
+)
+
+print(f"Target: {CATALOG}.{SCHEMA}")
 
 # --------------------------------------------------
 # Login
 # --------------------------------------------------
 
-
 token = login()
 
-print("Authentication successful")
+print("Authentication successful.")
 
 # --------------------------------------------------
-# Metadata types to ingest
+# Metadata Types
 # --------------------------------------------------
 
 metadata_types = [
@@ -30,26 +49,54 @@ metadata_types = [
     "program",
     "program_workflow",
     "relationship_type",
-    "drug", 
+    "drug",
     "program_workflow_state",
     "location",
     "concept_name"
 ]
 
 # --------------------------------------------------
-# Download and save each metadata type
+# Download Metadata
 # --------------------------------------------------
 
 for metadata_type in metadata_types:
 
-    print(f"Downloading {metadata_type}...")
+    print(f"\nDownloading {metadata_type}...")
 
-    data = get_metadata(metadata_type, token)  # Expecting a list, no change here, but ensure save_metadata can handle list.
+    data = get_metadata(metadata_type, token)
 
-    #print(type(data))
-    #print(data)
-    save_metadata(metadata_type, data)  # Ensure save_metadata can handle list of dicts or modify accordingly.
+    if not data:
+        print(f"No records returned for {metadata_type}")
+        continue
 
-    print(f"{metadata_type} completed")
+    try:
+        save_metadata(metadata_type, data)
+        print(f"{metadata_type} completed.")
 
-print("Metadata ingestion complete.")
+    except Exception as e:
+        print(f"\nFAILED: {metadata_type}")
+        print(type(data))
+        print(f"Records: {len(data)}")
+
+        if len(data):
+            print("First record:")
+            print(data[0])
+
+        raise
+
+    if not data:
+        print(f"No records returned for {metadata_type}")
+        continue
+
+    save_metadata(metadata_type, data)
+
+print("\nMetadata ingestion completed.")
+
+# --------------------------------------------------
+# Summary
+# --------------------------------------------------
+
+print(f"\nTables in {CATALOG}.{SCHEMA}:")
+
+for table in get_table_names():
+    print(f" - {table}")
