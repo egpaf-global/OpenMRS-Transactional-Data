@@ -27,7 +27,7 @@ SCHEMA = "malawi"
 # Synchronisation
 # ============================================
 
-DEFAULT_PAGE_SIZE = 1000
+DEFAULT_PAGE_SIZE = 10000
 REQUEST_TIMEOUT = 120
 
 INITIAL_SYNC_ID = 0

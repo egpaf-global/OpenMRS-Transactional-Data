@@ -15,7 +15,6 @@ from pyspark.sql.types import (
     BooleanType,
     DateType,
     DoubleType,
-    IntegerType,
     LongType,
     StringType,
     StructField,
@@ -24,7 +23,6 @@ from pyspark.sql.types import (
 )
 
 from src.settings import CATALOG, SCHEMA
-
 
 spark = SparkSession.builder.getOrCreate()
 
@@ -40,7 +38,6 @@ def qualified_table(table_name: str) -> str:
     Example:
         programsdev.malawi.patient
     """
-
     return f"{CATALOG}.{SCHEMA}.{table_name}"
 
 
@@ -48,7 +45,6 @@ def get_table_names():
     """
     Return all tables within the configured schema.
     """
-
     tables = spark.sql(
         f"SHOW TABLES IN {CATALOG}.{SCHEMA}"
     )
@@ -60,8 +56,9 @@ def table_exists(table_name: str) -> bool:
     """
     Check whether a table exists.
     """
-
-    return table_name in get_table_names()
+    return spark.catalog.tableExists(
+        qualified_table(table_name)
+    )
 
 
 # ---------------------------------------------------------------------
@@ -77,7 +74,6 @@ def _infer_spark_type(value):
         return BooleanType()
 
     if isinstance(value, int):
-        # use LongType to avoid integer overflow
         return LongType()
 
     if isinstance(value, float):
@@ -89,14 +85,12 @@ def _infer_spark_type(value):
     if isinstance(value, date):
         return DateType()
 
-    # Default everything else to string
     return StringType()
 
 
 def _build_schema(records):
     """
-    Build a Spark schema from the first non-null value
-    encountered for each field.
+    Build schema from first non-null values.
     """
 
     fields = {}
@@ -127,32 +121,41 @@ def _build_schema(records):
 
 
 # ---------------------------------------------------------------------
-# Save helpers
+# Save helper
 # ---------------------------------------------------------------------
 
 def _save_table(table_name: str, records: list, mode: str):
     """
-    Save records to a Delta table.
+    Save records to Delta.
     """
 
     if not records:
         print(f"No records returned for '{table_name}'.")
         return
 
-    schema = _build_schema(records)
+    full_table_name = qualified_table(table_name)
+
+    # ----------------------------------------------------------
+    # Reuse existing schema if table already exists
+    # ----------------------------------------------------------
+
+    if spark.catalog.tableExists(full_table_name):
+        schema = spark.table(full_table_name).schema
+    else:
+        schema = _build_schema(records)
 
     df = spark.createDataFrame(
         records,
         schema=schema
     )
 
-    full_table_name = qualified_table(table_name)
+    print("\nSchema being written:")
+    df.printSchema()
 
     (
         df.write
           .format("delta")
           .mode(mode)
-          .option("mergeSchema", "true")
           .saveAsTable(full_table_name)
     )
 
@@ -168,25 +171,30 @@ def _save_table(table_name: str, records: list, mode: str):
 
 def save_metadata(metadata_type: str, records: list):
     """
-    Save metadata tables.
+    Save metadata.
 
-    Metadata is always overwritten because each API call
-    returns a complete snapshot.
+    First page creates the table.
+    Remaining pages append using the existing schema.
     """
+
+    mode = (
+        "append"
+        if table_exists(metadata_type)
+        else "overwrite"
+    )
 
     _save_table(
         table_name=metadata_type,
         records=records,
-        mode="overwrite"
+        mode=mode
     )
 
 
 def save_transactions(table_name: str, records: list):
     """
-    Save transactional tables.
+    Save transactional data.
 
-    Transactional data is synchronized incrementally,
-    therefore records are appended.
+    Always append.
     """
 
     _save_table(

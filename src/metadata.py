@@ -1,12 +1,27 @@
-from src.api import get
-from src.settings import METADATA_ENDPOINT
+import requests
+
+from src.settings import (
+    BASE_URL,
+    METADATA_ENDPOINT,
+    REQUEST_TIMEOUT
+)
 
 
-#function to get metadata
-def get_metadata(metadata_type, token):
+def get_metadata(metadata_type, token, limit=1000, offset=0):
 
-    endpoint = f"{METADATA_ENDPOINT}?type={metadata_type}"
+    response = requests.get(
+        f"{BASE_URL}{METADATA_ENDPOINT}",
+        headers={
+            "Authorization": f"Bearer {token}"
+        },
+        params={
+            "type": metadata_type,
+            "limit": limit,
+            "offset": offset
+        },
+        timeout=REQUEST_TIMEOUT
+    )
 
-    response = get(endpoint, token)
+    response.raise_for_status()
 
-    return response["data"]
+    return response.json()
