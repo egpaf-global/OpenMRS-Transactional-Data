@@ -4,13 +4,17 @@ Storage utilities for Databricks Delta tables.
 Responsible for:
     - Saving metadata
     - Saving transactional data
-    - Checking table existence
-    - Listing tables
+    - Merge (upsert) support
+    - Table existence
+    - Schema inference
 """
 
 from datetime import date, datetime
 
+from delta.tables import DeltaTable
+
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
 from pyspark.sql.types import (
     BooleanType,
     DateType,
@@ -22,53 +26,62 @@ from pyspark.sql.types import (
     TimestampType,
 )
 
-from src.settings import CATALOG, SCHEMA
+from src.settings import (
+    CATALOG,
+    SCHEMA,
+    TARGET_SCHEMA,
+    TRANSACTION_TABLES,
+    ENABLE_SCHEMA_MERGE,
+)
 
 spark = SparkSession.builder.getOrCreate()
 
 
-# ---------------------------------------------------------------------
+# ============================================================
 # Helpers
-# ---------------------------------------------------------------------
+# ============================================================
 
 def qualified_table(table_name: str) -> str:
-    """
-    Returns the fully qualified Unity Catalog table name.
-
-    Example:
-        programsdev.malawi.patient
-    """
-    return f"{CATALOG}.{SCHEMA}.{table_name}"
-
-
-def get_table_names():
-    """
-    Return all tables within the configured schema.
-    """
-    tables = spark.sql(
-        f"SHOW TABLES IN {CATALOG}.{SCHEMA}"
-    )
-
-    return [row.tableName for row in tables.collect()]
+    """Return fully-qualified Unity Catalog table name."""
+    return f"{TARGET_SCHEMA}.{table_name}"
 
 
 def table_exists(table_name: str) -> bool:
-    """
-    Check whether a table exists.
-    """
+    """Return True if the table exists."""
     return spark.catalog.tableExists(
         qualified_table(table_name)
     )
 
 
-# ---------------------------------------------------------------------
+def get_table_names():
+    """Return all tables in the configured schema."""
+    tables = spark.sql(
+        f"SHOW TABLES IN {CATALOG}.{SCHEMA}"
+    )
+
+    return [t.tableName for t in tables.collect()]
+
+
+def get_primary_key(table_name: str) -> str:
+    """
+    Return the configured primary key.
+    """
+
+    for table in TRANSACTION_TABLES:
+
+        if table["table"] == table_name:
+            return table["primary_key"]
+
+    raise ValueError(
+        f"No primary key configured for '{table_name}'."
+    )
+
+
+# ============================================================
 # Schema inference
-# ---------------------------------------------------------------------
+# ============================================================
 
 def _infer_spark_type(value):
-    """
-    Infer a Spark SQL type from a Python value.
-    """
 
     if isinstance(value, bool):
         return BooleanType()
@@ -89,9 +102,6 @@ def _infer_spark_type(value):
 
 
 def _build_schema(records):
-    """
-    Build schema from first non-null values.
-    """
 
     fields = {}
 
@@ -99,10 +109,7 @@ def _build_schema(records):
 
         for key, value in record.items():
 
-            if key in fields:
-                continue
-
-            if value is not None:
+            if key not in fields and value is not None:
                 fields[key] = _infer_spark_type(value)
 
     schema = StructType()
@@ -120,85 +127,143 @@ def _build_schema(records):
     return schema
 
 
-# ---------------------------------------------------------------------
-# Save helper
-# ---------------------------------------------------------------------
+# ============================================================
+# DataFrame creation
+# ============================================================
 
-def _save_table(table_name: str, records: list, mode: str):
-    """
-    Save records to Delta.
-    """
+def _create_dataframe(table_name, records):
 
-    if not records:
-        print(f"No records returned for '{table_name}'.")
-        return
+    full_table = qualified_table(table_name)
 
-    full_table_name = qualified_table(table_name)
+    if table_exists(table_name):
 
-    # ----------------------------------------------------------
-    # Reuse existing schema if table already exists
-    # ----------------------------------------------------------
+        schema = spark.table(full_table).schema
 
-    if spark.catalog.tableExists(full_table_name):
-        schema = spark.table(full_table_name).schema
     else:
+
         schema = _build_schema(records)
 
-    df = spark.createDataFrame(
+    return spark.createDataFrame(
         records,
         schema=schema
     )
 
-    print("\nSchema being written:")
-    df.printSchema()
 
-    (
+# ============================================================
+# Append
+# ============================================================
+
+def append_records(table_name, records):
+
+    if not records:
+        return 0
+
+    df = _create_dataframe(
+        table_name,
+        records
+    )
+
+    writer = (
         df.write
           .format("delta")
-          .mode(mode)
-          .saveAsTable(full_table_name)
+          .mode("append")
+    )
+
+    if ENABLE_SCHEMA_MERGE:
+        writer = writer.option(
+            "mergeSchema",
+            "true"
+        )
+
+    writer.saveAsTable(
+        qualified_table(table_name)
     )
 
     print(
-        f"Successfully saved {len(records):,} records "
-        f"to {full_table_name}"
+        f"✓ {table_name}: appended {len(records):,} records"
     )
 
+    return len(records)
 
-# ---------------------------------------------------------------------
+
+# ============================================================
+# Merge (Upsert)
+# ============================================================
+
+def merge_records(table_name, records):
+
+    if not records:
+        return 0
+
+    full_table = qualified_table(table_name)
+
+    if not table_exists(table_name):
+
+        append_records(
+            table_name,
+            records
+        )
+
+        return len(records)
+
+    primary_key = get_primary_key(
+        table_name
+    )
+
+    source_df = _create_dataframe(
+        table_name,
+        records
+    )
+
+    delta_table = DeltaTable.forName(
+        spark,
+        full_table
+    )
+
+    (
+        delta_table.alias("target")
+
+        .merge(
+            source_df.alias("source"),
+            f"target.{primary_key} = source.{primary_key}"
+        )
+
+        .whenMatchedUpdateAll()
+
+        .whenNotMatchedInsertAll()
+
+        .execute()
+    )
+
+    print(
+        f"✓ {table_name}: merged {len(records):,} records"
+    )
+
+    return len(records)
+
+
+# ============================================================
 # Public API
-# ---------------------------------------------------------------------
+# ============================================================
 
-def save_metadata(metadata_type: str, records: list):
+def save_metadata(metadata_type, records):
     """
-    Save metadata.
-
-    First page creates the table.
-    Remaining pages append using the existing schema.
+    Metadata is append-only.
     """
 
-    mode = (
-        "append"
-        if table_exists(metadata_type)
-        else "overwrite"
-    )
-
-    _save_table(
-        table_name=metadata_type,
-        records=records,
-        mode=mode
+    return append_records(
+        metadata_type,
+        records
     )
 
 
-def save_transactions(table_name: str, records: list):
+def save_transactions(table_name, records):
     """
-    Save transactional data.
-
-    Always append.
+    Transactional data uses UPSERT
+    for idempotent synchronization.
     """
 
-    _save_table(
-        table_name=table_name,
-        records=records,
-        mode="append"
+    return merge_records(
+        table_name,
+        records
     )

@@ -29,7 +29,8 @@ from src.storage import (
 
 from src.settings import (
     CATALOG,
-    SCHEMA
+    SCHEMA,
+    TARGET_SCHEMA
 )
 
 print("=" * 90)
