@@ -25,7 +25,8 @@ from pyspark.sql.types import (
 
 from src.settings import (
     SYNC_STATE_TABLE,
-    SYNC_HISTORY_TABLE
+    SYNC_HISTORY_TABLE,
+    TARGET_SCHEMA
 )
 
 spark = SparkSession.builder.getOrCreate()
@@ -269,3 +270,33 @@ def write_sync_history(
         .format("delta")
         .saveAsTable(SYNC_HISTORY_TABLE)
     )
+
+def reset_sync_tables():
+    """
+    Drops all transaction and synchronization tables, then recreates
+    the synchronization metadata tables.
+
+    Intended for development and testing only.
+    """
+
+    tables_to_drop = [
+        f"{TARGET_SCHEMA}.patient",
+        f"{TARGET_SCHEMA}.encounter",
+        f"{TARGET_SCHEMA}.patient_program",
+        f"{TARGET_SCHEMA}.order",
+        f"{TARGET_SCHEMA}.drug_order",
+        f"{TARGET_SCHEMA}.observation",
+        SYNC_STATE_TABLE,
+        SYNC_HISTORY_TABLE,
+    ]
+
+    for table in tables_to_drop:
+        print(f"Dropping {table}...")
+        spark.sql(f"DROP TABLE IF EXISTS {table}")
+        print(f"✓ Dropped {table}")
+
+    print("All transaction and synchronization tables dropped.")
+
+    create_sync_tables()
+
+    print("Synchronization tables recreated successfully.")

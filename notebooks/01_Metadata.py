@@ -69,7 +69,8 @@ metadata_types = [
     "drug",
     "program_workflow_state",
     "location",
-    "concept_name"
+    "concept_name",
+    "arv_drug"
 ]
 
 summary = []

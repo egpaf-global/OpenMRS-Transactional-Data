@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC
 
@@ -73,10 +77,7 @@ locations = (
          .select("location_id", "name")
          .where("""
              location_id IN (
-                856,1050, 1042, 1031, 1025, 1003, 965, 950, 946,
-                919, 897, 870, 869, 864, 859, 855, 852,
-                844, 841, 839, 837, 836, 819, 808, 807,
-                684, 478, 458, 356, 273, 191, 165, 50
+                865
              )
          """)
          .orderBy("location_id")
