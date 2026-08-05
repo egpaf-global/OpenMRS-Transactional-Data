@@ -70,7 +70,7 @@ TRANSACTION_TABLES = [
 # Synchronisation
 # ============================================================
 
-DEFAULT_BATCH_SIZE = 5000
+DEFAULT_BATCH_SIZE = 10000
 
 REQUEST_TIMEOUT = 120
 
