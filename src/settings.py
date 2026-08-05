@@ -56,6 +56,10 @@ TRANSACTION_TABLES = [
         "primary_key": "order_id"
     },
     {
+        "table": "patient_state",
+        "primary_key": "patient_state_id"
+    },
+    {
         "table": "observation",
         "primary_key": "obs_id"
     }

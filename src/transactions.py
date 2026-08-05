@@ -22,6 +22,7 @@ RECORD_KEYS = {
     "patient_program": "patient_programs",
     "order": "orders",
     "drug_order": "drug_orders",
+    "patient_state": "patient_states"
 }
 
 

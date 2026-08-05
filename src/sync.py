@@ -285,7 +285,9 @@ def reset_sync_tables():
         f"{TARGET_SCHEMA}.patient_program",
         f"{TARGET_SCHEMA}.order",
         f"{TARGET_SCHEMA}.drug_order",
-        f"{TARGET_SCHEMA}.observation",
+        f"{TARGET_SCHEMA}.observation", 
+        f"{TARGET_SCHEMA}.drug_order", 
+        f"{TARGET_SCHEMA}.patient_state",
         SYNC_STATE_TABLE,
         SYNC_HISTORY_TABLE,
     ]
