@@ -48,7 +48,6 @@ from src.sync import (
     update_sync_state,
     write_sync_history
 )
-from src.settings import DEFAULT_BATCH_SIZE
 
 # --------------------------------------------------
 # Spark Session
@@ -258,9 +257,6 @@ for location in locations:
                     f"✓ Batch {batch_number} complete "
                     f"({record_count:,} records)"
                 )
-
-                if record_count < DEFAULT_BATCH_SIZE:
-                    break
 
                 batch_number += 1
 
