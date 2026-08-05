@@ -300,3 +300,58 @@ def reset_sync_tables():
     create_sync_tables()
 
     print("Synchronization tables recreated successfully.")
+
+    # ============================================================
+# Metadata Table Reset
+# ============================================================
+
+def reset_metadata_tables():
+    """
+    Drops and purges metadata tables from TARGET_SCHEMA, and resets their 
+    corresponding tracking entries in SYNC_STATE_TABLE and SYNC_HISTORY_TABLE.
+
+    Intended for development and testing environments.
+    """
+    metadata_types = [
+        "encounter_type",
+        "order_type",
+        "program",
+        "program_workflow",
+        "relationship_type",
+        "drug",
+        "program_workflow_state",
+        "location",
+        "concept_name",
+        "arv_drug"
+    ]
+
+    print("=== Starting Metadata Table Reset ===")
+
+    # 1. Drop physical metadata Delta tables
+    for meta_table in metadata_types:
+        full_table_name = f"{TARGET_SCHEMA}.{meta_table}"
+        print(f"Dropping metadata table {full_table_name}...")
+        spark.sql(f"DROP TABLE IF EXISTS {full_table_name}")
+        print(f"✓ Dropped {full_table_name}")
+
+    # 2. Reset checkpoint entries in sync_state
+    if spark.catalog.tableExists(SYNC_STATE_TABLE):
+        print(f"\nCleaning checkpoint state in {SYNC_STATE_TABLE}...")
+        quoted_tables = ", ".join([f"'{t}'" for t in metadata_types])
+        spark.sql(f"""
+            DELETE FROM {SYNC_STATE_TABLE}
+            WHERE table_name IN ({quoted_tables})
+        """)
+        print("✓ Checkpoint states cleared for metadata tables.")
+
+    # 3. Clear run history entries in sync_history
+    if spark.catalog.tableExists(SYNC_HISTORY_TABLE):
+        print(f"Cleaning history state in {SYNC_HISTORY_TABLE}...")
+        quoted_tables = ", ".join([f"'{t}'" for t in metadata_types])
+        spark.sql(f"""
+            DELETE FROM {SYNC_HISTORY_TABLE}
+            WHERE table_name IN ({quoted_tables})
+        """)
+        print("✓ Sync history cleared for metadata tables.")
+
+    print("\nMetadata reset completed successfully.")
