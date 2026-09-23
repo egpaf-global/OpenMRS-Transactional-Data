@@ -35,34 +35,41 @@ SYNC_HISTORY_TABLE = f"{TARGET_SCHEMA}.sync_history"
 # ============================================================
 
 TRANSACTION_TABLES = [
+
     {
         "table": "patient",
-        "primary_key": "patient_id"
+        "keys": ["patient_id", "site_id"],
     },
+
     {
         "table": "encounter",
-        "primary_key": "encounter_id"
+        "keys": ["encounter_id", "site_id"],
     },
+
     {
         "table": "patient_program",
-        "primary_key": "patient_program_id"
+        "keys": ["patient_program_id", "site_id"],
     },
+
     {
         "table": "order",
-        "primary_key": "order_id"
+        "keys": ["order_id", "site_id"],
     },
+
     {
         "table": "drug_order",
-        "primary_key": "order_id"
+        "keys": ["order_id", "site_id"],
     },
+
     {
         "table": "patient_state",
-        "primary_key": "patient_state_id"
+        "keys": ["patient_state_id", "site_id"],
     },
+
     {
         "table": "observation",
-        "primary_key": "obs_id"
-    }
+        "keys": ["obs_id", "site_id"],
+    },
 ]
 
 

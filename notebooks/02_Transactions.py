@@ -72,12 +72,19 @@ print("Authentication successful.")
 # Read Locations
 # --------------------------------------------------
 
+#locations = (
+ #   spark.table(f"{TARGET_SCHEMA}.location")
+  #       .select("location_id", "name")
+   #      .orderBy("location_id")
+    #     .toLocalIterator()
+#)
+
 locations = (
     spark.table(f"{TARGET_SCHEMA}.location")
          .select("location_id", "name")
          .where("""
              location_id IN (
-                870
+                32
              )
          """)
          .orderBy("location_id")
