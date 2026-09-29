@@ -4,17 +4,21 @@ Storage utilities for Databricks Delta tables.
 Responsible for:
     - Saving metadata
     - Saving transactional data
-    - Merge (upsert) support
+    - Merge / upsert support
     - Table existence
     - Schema inference
     - Single-column and compound merge keys
+
+Spark session handling:
+    - Databricks provides the Spark session.
+    - This module does NOT create a new Spark session.
+    - The notebook must call configure_spark(spark).
 """
 
 from datetime import date, datetime
 
 from delta.tables import DeltaTable
 
-from pyspark.sql import SparkSession
 from pyspark.sql.types import (
     BooleanType,
     DateType,
@@ -35,7 +39,55 @@ from src.settings import (
 )
 
 
-spark = SparkSession.builder.getOrCreate()
+# ============================================================
+# Spark Session
+# ============================================================
+
+# The Spark session is supplied by Databricks.
+#
+# DO NOT do:
+#
+# spark = SparkSession.builder.getOrCreate()
+#
+# because this can cause Spark Connect session problems when
+# modules are reloaded in Databricks.
+
+spark = None
+
+
+def configure_spark(session):
+    """
+    Configure this module to use the Spark session supplied
+    by the Databricks notebook.
+    """
+
+    global spark
+
+    if session is None:
+        raise ValueError(
+            "A valid Spark session must be supplied."
+        )
+
+    spark = session
+
+    print(
+        "✓ storage.py configured with Databricks Spark session"
+    )
+
+
+def _require_spark():
+    """
+    Ensure the module has been configured with a Spark session.
+    """
+
+    if spark is None:
+        raise RuntimeError(
+            "Spark session has not been configured. "
+            "Call src.storage.configure_spark(spark) "
+            "from the Databricks notebook first."
+        )
+
+    return spark
 
 
 # ============================================================
@@ -47,7 +99,8 @@ def qualified_table(table_name: str) -> str:
     Return the fully-qualified Unity Catalog table name.
 
     Example:
-        programsdev.malawi.encounter
+
+        programsdev.malawi.patient
     """
 
     return f"{TARGET_SCHEMA}.{table_name}"
@@ -58,7 +111,9 @@ def table_exists(table_name: str) -> bool:
     Return True if the Delta table exists.
     """
 
-    return spark.catalog.tableExists(
+    session = _require_spark()
+
+    return session.catalog.tableExists(
         qualified_table(table_name)
     )
 
@@ -68,7 +123,9 @@ def get_table_names():
     Return all tables in the configured catalog/schema.
     """
 
-    tables = spark.sql(
+    session = _require_spark()
+
+    tables = session.sql(
         f"SHOW TABLES IN {CATALOG}.{SCHEMA}"
     )
 
@@ -78,19 +135,21 @@ def get_table_names():
     ]
 
 
+# ============================================================
+# Merge Keys
+# ============================================================
+
 def get_merge_keys(table_name: str) -> list[str]:
     """
     Return the configured merge keys for a transactional table.
 
-    Supports both:
+    Supports:
 
-        "keys": ["encounter_id"]
+        "keys": ["patient_id"]
 
-    and:
+    and compound keys:
 
         "keys": ["encounter_id", "site_id"]
-
-    The latter represents a compound logical key.
     """
 
     for table in TRANSACTION_TABLES:
@@ -101,7 +160,8 @@ def get_merge_keys(table_name: str) -> list[str]:
 
             if not keys:
                 raise ValueError(
-                    f"No merge keys configured for '{table_name}'."
+                    f"No merge keys configured for "
+                    f"'{table_name}'."
                 )
 
             if isinstance(keys, str):
@@ -110,7 +170,8 @@ def get_merge_keys(table_name: str) -> list[str]:
             return keys
 
     raise ValueError(
-        f"No merge keys configured for '{table_name}'."
+        f"No merge keys configured for "
+        f"'{table_name}'."
     )
 
 
@@ -122,11 +183,11 @@ def build_merge_condition(
     """
     Build the Delta MERGE condition.
 
-    For a single key:
+    Single key:
 
         target.patient_id = source.patient_id
 
-    For compound keys:
+    Compound key:
 
         target.encounter_id = source.encounter_id
         AND target.site_id = source.site_id
@@ -135,7 +196,8 @@ def build_merge_condition(
     keys = get_merge_keys(table_name)
 
     conditions = [
-        f"{target_alias}.{key} = {source_alias}.{key}"
+        f"{target_alias}.{key} = "
+        f"{source_alias}.{key}"
         for key in keys
     ]
 
@@ -143,12 +205,12 @@ def build_merge_condition(
 
 
 # ============================================================
-# Schema inference
+# Schema Inference
 # ============================================================
 
 def _infer_spark_type(value):
     """
-    Infer the Spark data type from a Python value.
+    Infer Spark SQL type from a Python value.
     """
 
     if isinstance(value, bool):
@@ -172,7 +234,15 @@ def _infer_spark_type(value):
 def _build_schema(records):
     """
     Build a Spark schema from incoming records.
+
+    The first non-null value found for each field is used
+    to determine the Spark type.
     """
+
+    if not records:
+        raise ValueError(
+            "Cannot build schema from empty records."
+        )
 
     fields = {}
 
@@ -180,8 +250,13 @@ def _build_schema(records):
 
         for key, value in record.items():
 
-            if key not in fields and value is not None:
-                fields[key] = _infer_spark_type(value)
+            if key in fields:
+                continue
+
+            if value is not None:
+                fields[key] = _infer_spark_type(
+                    value
+                )
 
     schema = StructType()
 
@@ -190,7 +265,10 @@ def _build_schema(records):
         schema.add(
             StructField(
                 key,
-                fields.get(key, StringType()),
+                fields.get(
+                    key,
+                    StringType()
+                ),
                 True,
             )
         )
@@ -199,23 +277,36 @@ def _build_schema(records):
 
 
 # ============================================================
-# DataFrame creation
+# DataFrame Creation
 # ============================================================
 
-def _create_dataframe(table_name, records):
+def _create_dataframe(
+    table_name,
+    records,
+):
     """
-    Create a Spark DataFrame using the existing Delta table schema
-    where available.
+    Create a Spark DataFrame.
 
-    If the table does not yet exist, infer the schema from the
-    incoming records.
+    If the Delta table already exists, use its schema.
+
+    Otherwise infer the schema from the incoming records.
     """
 
-    full_table = qualified_table(table_name)
+    session = _require_spark()
+
+    if not records:
+        raise ValueError(
+            f"No records supplied for "
+            f"'{table_name}'."
+        )
+
+    full_table = qualified_table(
+        table_name
+    )
 
     if table_exists(table_name):
 
-        schema = spark.table(
+        schema = session.table(
             full_table
         ).schema
 
@@ -225,7 +316,7 @@ def _create_dataframe(table_name, records):
             records
         )
 
-    return spark.createDataFrame(
+    return session.createDataFrame(
         records,
         schema=schema,
     )
@@ -235,17 +326,25 @@ def _create_dataframe(table_name, records):
 # Append
 # ============================================================
 
-def append_records(table_name, records):
+def append_records(
+    table_name,
+    records,
+):
     """
     Append records to a Delta table.
 
-    Used primarily for metadata tables.
-
-    No merge/upsert logic is performed here.
+    Primarily used for metadata tables.
     """
 
     if not records:
+        print(
+            f"⚠ {table_name}: "
+            f"no records to append"
+        )
+
         return 0
+
+    session = _require_spark()
 
     df = _create_dataframe(
         table_name,
@@ -281,42 +380,30 @@ def append_records(table_name, records):
 # Merge / Upsert
 # ============================================================
 
-def merge_records(table_name, records):
+def merge_records(
+    table_name,
+    records,
+):
     """
     Merge transactional records into a Delta table.
 
-    The merge condition is generated from the configured
-    merge keys.
+    Existing records:
+        UPDATE
 
-    Example:
-
-        keys = ["encounter_id"]
-
-    produces:
-
-        target.encounter_id = source.encounter_id
-
-
-    Compound key example:
-
-        keys = ["encounter_id", "site_id"]
-
-    produces:
-
-        target.encounter_id = source.encounter_id
-        AND target.site_id = source.site_id
-
-    Behaviour:
-
-        Existing matching record
-            -> UPDATE
-
-        New record
-            -> INSERT
+    New records:
+        INSERT
     """
 
     if not records:
+
+        print(
+            f"⚠ {table_name}: "
+            f"no records to merge"
+        )
+
         return 0
+
+    session = _require_spark()
 
     full_table = qualified_table(
         table_name
@@ -342,7 +429,7 @@ def merge_records(table_name, records):
         return len(records)
 
     # --------------------------------------------------------
-    # Get configured merge keys
+    # Merge keys
     # --------------------------------------------------------
 
     merge_keys = get_merge_keys(
@@ -350,8 +437,7 @@ def merge_records(table_name, records):
     )
 
     # --------------------------------------------------------
-    # Validate that merge keys exist
-    # in the incoming data
+    # Validate merge keys
     # --------------------------------------------------------
 
     incoming_columns = set(
@@ -382,16 +468,16 @@ def merge_records(table_name, records):
     )
 
     # --------------------------------------------------------
-    # Get Delta table
+    # Delta table
     # --------------------------------------------------------
 
     delta_table = DeltaTable.forName(
-        spark,
+        session,
         full_table,
     )
 
     # --------------------------------------------------------
-    # Build MERGE condition
+    # Merge condition
     # --------------------------------------------------------
 
     merge_condition = build_merge_condition(
@@ -407,7 +493,8 @@ def merge_records(table_name, records):
 
     print(
         f"→ {table_name}: "
-        f"MERGE condition = {merge_condition}"
+        f"MERGE condition = "
+        f"{merge_condition}"
     )
 
     # --------------------------------------------------------
@@ -416,16 +503,12 @@ def merge_records(table_name, records):
 
     (
         delta_table.alias("target")
-
         .merge(
             source_df.alias("source"),
             merge_condition,
         )
-
         .whenMatchedUpdateAll()
-
         .whenNotMatchedInsertAll()
-
         .execute()
     )
 
@@ -441,11 +524,14 @@ def merge_records(table_name, records):
 # Public API
 # ============================================================
 
-def save_metadata(metadata_type, records):
+def save_metadata(
+    metadata_type,
+    records,
+):
     """
     Save metadata records.
 
-    Metadata is append-only.
+    Metadata is appended to the target table.
     """
 
     return append_records(
@@ -454,14 +540,15 @@ def save_metadata(metadata_type, records):
     )
 
 
-def save_transactions(table_name, records):
+def save_transactions(
+    table_name,
+    records,
+):
     """
     Save transactional records.
 
     Transactional data uses Delta MERGE/UPSERT
     for idempotent synchronization.
-
-    Merge keys are defined in TRANSACTION_TABLES.
     """
 
     return merge_records(

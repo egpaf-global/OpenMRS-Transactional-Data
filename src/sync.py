@@ -2,8 +2,15 @@
 Synchronization utilities.
 
 Maintains:
+
     - sync_state
     - sync_history
+
+Spark session handling:
+
+    - Databricks provides the Spark session.
+    - This module does NOT create a new Spark session.
+    - The notebook must call configure_spark(spark).
 """
 
 import uuid
@@ -11,25 +18,65 @@ from datetime import datetime
 
 from delta.tables import DeltaTable
 
-from pyspark.sql import SparkSession
-from pyspark.sql import Row
 from pyspark.sql.functions import col
+
 from pyspark.sql.types import (
     StructType,
     StructField,
     StringType,
     IntegerType,
     LongType,
+    DoubleType,
     TimestampType,
 )
 
 from src.settings import (
     SYNC_STATE_TABLE,
     SYNC_HISTORY_TABLE,
-    TARGET_SCHEMA
+    TARGET_SCHEMA,
 )
 
-spark = SparkSession.builder.getOrCreate()
+
+# ============================================================
+# Spark Session
+# ============================================================
+
+spark = None
+
+
+def configure_spark(session):
+    """
+    Configure this module to use the Spark session supplied
+    by the Databricks notebook.
+    """
+
+    global spark
+
+    if session is None:
+        raise ValueError(
+            "A valid Spark session must be supplied."
+        )
+
+    spark = session
+
+    print(
+        "✓ sync.py configured with Databricks Spark session"
+    )
+
+
+def _require_spark():
+    """
+    Ensure the module has been configured with a Spark session.
+    """
+
+    if spark is None:
+        raise RuntimeError(
+            "Spark session has not been configured. "
+            "Call src.sync.configure_spark(spark) "
+            "from the Databricks notebook first."
+        )
+
+    return spark
 
 
 # ============================================================
@@ -38,8 +85,12 @@ spark = SparkSession.builder.getOrCreate()
 
 def create_sync_state_table():
 
-    spark.sql(f"""
-        CREATE TABLE IF NOT EXISTS {SYNC_STATE_TABLE}
+    session = _require_spark()
+
+    session.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS
+        {SYNC_STATE_TABLE}
         (
             location_id INT,
             location_name STRING,
@@ -58,18 +109,24 @@ def create_sync_state_table():
 
             created_at TIMESTAMP,
             updated_at TIMESTAMP
-
         )
         USING DELTA
-    """)
+        """
+    )
 
-    print(f"{SYNC_STATE_TABLE} verified.")
+    print(
+        f"✓ {SYNC_STATE_TABLE} verified."
+    )
 
 
 def create_sync_history_table():
 
-    spark.sql(f"""
-        CREATE TABLE IF NOT EXISTS {SYNC_HISTORY_TABLE}
+    session = _require_spark()
+
+    session.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS
+        {SYNC_HISTORY_TABLE}
         (
             run_id STRING,
 
@@ -89,31 +146,50 @@ def create_sync_history_table():
 
             status STRING,
             error_message STRING
-
         )
         USING DELTA
-    """)
+        """
+    )
 
-    print(f"{SYNC_HISTORY_TABLE} verified.")
+    print(
+        f"✓ {SYNC_HISTORY_TABLE} verified."
+    )
 
 
 def create_sync_tables():
 
+    print()
+    print(
+        "Creating/verifying synchronization tables..."
+    )
+
     create_sync_state_table()
     create_sync_history_table()
+
+    print(
+        "✓ Synchronization tables ready."
+    )
 
 
 # ============================================================
 # Read Checkpoint
 # ============================================================
 
-def get_sync_state(location_id, table_name):
+def get_sync_state(
+    location_id,
+    table_name,
+):
+
+    session = _require_spark()
 
     rows = (
-        spark.table(SYNC_STATE_TABLE)
+        session.table(
+            SYNC_STATE_TABLE
+        )
         .filter(
             (col("location_id") == location_id)
-            & (col("table_name") == table_name)
+            &
+            (col("table_name") == table_name)
         )
         .limit(1)
         .collect()
@@ -139,27 +215,90 @@ def update_sync_state(
     sync_started_at,
     sync_completed_at,
     status,
-    error_message=None
+    error_message=None,
 ):
+
+    session = _require_spark()
 
     now = datetime.utcnow()
 
-    schema = StructType([
-        StructField("location_id", IntegerType(), False),
-        StructField("location_name", StringType(), True),
-        StructField("table_name", StringType(), False),
-        StructField("last_transaction_id", LongType(), True),
-        StructField("last_transaction_site_datetime", TimestampType(), True),
-        StructField("last_sync_started_at", TimestampType(), True),
-        StructField("last_sync_completed_at", TimestampType(), True),
-        StructField("records_received", LongType(), True),
-        StructField("status", StringType(), True),
-        StructField("error_message", StringType(), True),
-        StructField("created_at", TimestampType(), True),
-        StructField("updated_at", TimestampType(), True),
-    ])
+    schema = StructType(
+        [
+            StructField(
+                "location_id",
+                IntegerType(),
+                False,
+            ),
 
-    source = spark.createDataFrame(
+            StructField(
+                "location_name",
+                StringType(),
+                True,
+            ),
+
+            StructField(
+                "table_name",
+                StringType(),
+                False,
+            ),
+
+            StructField(
+                "last_transaction_id",
+                LongType(),
+                True,
+            ),
+
+            StructField(
+                "last_transaction_site_datetime",
+                TimestampType(),
+                True,
+            ),
+
+            StructField(
+                "last_sync_started_at",
+                TimestampType(),
+                True,
+            ),
+
+            StructField(
+                "last_sync_completed_at",
+                TimestampType(),
+                True,
+            ),
+
+            StructField(
+                "records_received",
+                LongType(),
+                True,
+            ),
+
+            StructField(
+                "status",
+                StringType(),
+                True,
+            ),
+
+            StructField(
+                "error_message",
+                StringType(),
+                True,
+            ),
+
+            StructField(
+                "created_at",
+                TimestampType(),
+                True,
+            ),
+
+            StructField(
+                "updated_at",
+                TimestampType(),
+                True,
+            ),
+        ]
+    )
+
+    source = session.createDataFrame(
         [
             (
                 location_id,
@@ -179,28 +318,51 @@ def update_sync_state(
         schema=schema,
     )
 
-    delta = DeltaTable.forName(spark, SYNC_STATE_TABLE)
+    delta = DeltaTable.forName(
+        session,
+        SYNC_STATE_TABLE,
+    )
 
     (
         delta.alias("target")
         .merge(
             source.alias("source"),
             """
-            target.location_id = source.location_id
-            AND target.table_name = source.table_name
+            target.location_id =
+                source.location_id
+            AND
+            target.table_name =
+                source.table_name
             """,
         )
         .whenMatchedUpdate(
             set={
-                "location_name": "source.location_name",
-                "last_transaction_id": "source.last_transaction_id",
-                "last_transaction_site_datetime": "source.last_transaction_site_datetime",
-                "last_sync_started_at": "source.last_sync_started_at",
-                "last_sync_completed_at": "source.last_sync_completed_at",
-                "records_received": "source.records_received",
-                "status": "source.status",
-                "error_message": "source.error_message",
-                "updated_at": "source.updated_at",
+                "location_name":
+                    "source.location_name",
+
+                "last_transaction_id":
+                    "source.last_transaction_id",
+
+                "last_transaction_site_datetime":
+                    "source.last_transaction_site_datetime",
+
+                "last_sync_started_at":
+                    "source.last_sync_started_at",
+
+                "last_sync_completed_at":
+                    "source.last_sync_completed_at",
+
+                "records_received":
+                    "source.records_received",
+
+                "status":
+                    "source.status",
+
+                "error_message":
+                    "source.error_message",
+
+                "updated_at":
+                    "source.updated_at",
             }
         )
         .whenNotMatchedInsertAll()
@@ -235,13 +397,41 @@ def write_sync_history(
         StructField("location_name", StringType(), True),
         StructField("table_name", StringType(), False),
         StructField("last_transaction_id", LongType(), True),
-        StructField("last_transaction_site_datetime", TimestampType(), True),
-        StructField("sync_started_at", TimestampType(), True),
-        StructField("sync_completed_at", TimestampType(), True),
-        StructField("duration_seconds", StringType(), True),
-        StructField("records_received", LongType(), True),
-        StructField("status", StringType(), True),
-        StructField("error_message", StringType(), True),
+        StructField(
+            "last_transaction_site_datetime",
+            TimestampType(),
+            True
+        ),
+        StructField(
+            "sync_started_at",
+            TimestampType(),
+            True
+        ),
+        StructField(
+            "sync_completed_at",
+            TimestampType(),
+            True
+        ),
+        StructField(
+            "duration_seconds",
+            DoubleType(),
+            True
+        ),
+        StructField(
+            "records_received",
+            LongType(),
+            True
+        ),
+        StructField(
+            "status",
+            StringType(),
+            True
+        ),
+        StructField(
+            "error_message",
+            StringType(),
+            True
+        ),
     ])
 
     df = spark.createDataFrame(
@@ -255,7 +445,7 @@ def write_sync_history(
                 last_transaction_site_datetime,
                 sync_started_at,
                 sync_completed_at,
-                str(duration),
+                duration,
                 records_received,
                 status,
                 error_message,
@@ -271,13 +461,30 @@ def write_sync_history(
         .saveAsTable(SYNC_HISTORY_TABLE)
     )
 
+    print(
+        f"✓ Sync history written: "
+        f"{table_name} | "
+        f"{records_received:,} records | "
+        f"{duration:.2f}s | "
+        f"Status={status}"
+    )
+
+
+# ============================================================
+# Development Reset
+# ============================================================
+
 def reset_sync_tables():
     """
-    Drops all transaction and synchronization tables, then recreates
-    the synchronization metadata tables.
+    DEVELOPMENT / TESTING ONLY.
 
-    Intended for development and testing only.
+    Drops transaction and synchronization tables
+    and recreates the synchronization tables.
+
+    DO NOT call this during a production synchronization.
     """
+
+    session = _require_spark()
 
     tables_to_drop = [
         f"{TARGET_SCHEMA}.patient",
@@ -285,35 +492,66 @@ def reset_sync_tables():
         f"{TARGET_SCHEMA}.patient_program",
         f"{TARGET_SCHEMA}.order",
         f"{TARGET_SCHEMA}.drug_order",
-        f"{TARGET_SCHEMA}.observation", 
-        f"{TARGET_SCHEMA}.drug_order", 
+        f"{TARGET_SCHEMA}.observation",
         f"{TARGET_SCHEMA}.patient_state",
         SYNC_STATE_TABLE,
         SYNC_HISTORY_TABLE,
     ]
 
-    for table in tables_to_drop:
-        print(f"Dropping {table}...")
-        spark.sql(f"DROP TABLE IF EXISTS {table}")
-        print(f"✓ Dropped {table}")
+    print()
+    print(
+        "=" * 70
+    )
+    print(
+        "RESETTING TRANSACTION SYNCHRONIZATION TABLES"
+    )
+    print(
+        "=" * 70
+    )
 
-    print("All transaction and synchronization tables dropped.")
+    for table in tables_to_drop:
+
+        print(
+            f"Dropping {table}..."
+        )
+
+        session.sql(
+            f"DROP TABLE IF EXISTS {table}"
+        )
+
+        print(
+            f"✓ Dropped {table}"
+        )
+
+    print()
+    print(
+        "All transaction and synchronization "
+        "tables dropped."
+    )
 
     create_sync_tables()
 
-    print("Synchronization tables recreated successfully.")
+    print(
+        "✓ Synchronization tables recreated."
+    )
 
-    # ============================================================
-# Metadata Table Reset
+
+# ============================================================
+# Metadata Reset
 # ============================================================
 
 def reset_metadata_tables():
     """
-    Drops and purges metadata tables from TARGET_SCHEMA, and resets their 
-    corresponding tracking entries in SYNC_STATE_TABLE and SYNC_HISTORY_TABLE.
+    DEVELOPMENT / TESTING ONLY.
 
-    Intended for development and testing environments.
+    Drops metadata Delta tables and removes their
+    corresponding synchronization entries.
+
+    Does NOT affect transaction tables.
     """
+
+    session = _require_spark()
+
     metadata_types = [
         "encounter_type",
         "order_type",
@@ -324,36 +562,111 @@ def reset_metadata_tables():
         "program_workflow_state",
         "location",
         "concept_name",
-        "arv_drug"
+        "arv_drug",
     ]
 
-    print("=== Starting Metadata Table Reset ===")
+    print()
+    print(
+        "=" * 70
+    )
+    print(
+        "RESETTING METADATA TABLES"
+    )
+    print(
+        "=" * 70
+    )
 
-    # 1. Drop physical metadata Delta tables
+    # --------------------------------------------------------
+    # Drop metadata tables
+    # --------------------------------------------------------
+
     for meta_table in metadata_types:
-        full_table_name = f"{TARGET_SCHEMA}.{meta_table}"
-        print(f"Dropping metadata table {full_table_name}...")
-        spark.sql(f"DROP TABLE IF EXISTS {full_table_name}")
-        print(f"✓ Dropped {full_table_name}")
 
-    # 2. Reset checkpoint entries in sync_state
-    if spark.catalog.tableExists(SYNC_STATE_TABLE):
-        print(f"\nCleaning checkpoint state in {SYNC_STATE_TABLE}...")
-        quoted_tables = ", ".join([f"'{t}'" for t in metadata_types])
-        spark.sql(f"""
+        full_table_name = (
+            f"{TARGET_SCHEMA}.{meta_table}"
+        )
+
+        print(
+            f"Dropping {full_table_name}..."
+        )
+
+        session.sql(
+            f"DROP TABLE IF EXISTS "
+            f"{full_table_name}"
+        )
+
+        print(
+            f"✓ Dropped {full_table_name}"
+        )
+
+    # --------------------------------------------------------
+    # Reset sync state
+    # --------------------------------------------------------
+
+    if session.catalog.tableExists(
+        SYNC_STATE_TABLE
+    ):
+
+        print()
+        print(
+            f"Cleaning checkpoint state "
+            f"in {SYNC_STATE_TABLE}..."
+        )
+
+        quoted_tables = ", ".join(
+            [
+                f"'{table}'"
+                for table in metadata_types
+            ]
+        )
+
+        session.sql(
+            f"""
             DELETE FROM {SYNC_STATE_TABLE}
-            WHERE table_name IN ({quoted_tables})
-        """)
-        print("✓ Checkpoint states cleared for metadata tables.")
+            WHERE table_name IN (
+                {quoted_tables}
+            )
+            """
+        )
 
-    # 3. Clear run history entries in sync_history
-    if spark.catalog.tableExists(SYNC_HISTORY_TABLE):
-        print(f"Cleaning history state in {SYNC_HISTORY_TABLE}...")
-        quoted_tables = ", ".join([f"'{t}'" for t in metadata_types])
-        spark.sql(f"""
+        print(
+            "✓ Checkpoint states cleared."
+        )
+
+    # --------------------------------------------------------
+    # Reset sync history
+    # --------------------------------------------------------
+
+    if session.catalog.tableExists(
+        SYNC_HISTORY_TABLE
+    ):
+
+        print(
+            f"Cleaning history state "
+            f"in {SYNC_HISTORY_TABLE}..."
+        )
+
+        quoted_tables = ", ".join(
+            [
+                f"'{table}'"
+                for table in metadata_types
+            ]
+        )
+
+        session.sql(
+            f"""
             DELETE FROM {SYNC_HISTORY_TABLE}
-            WHERE table_name IN ({quoted_tables})
-        """)
-        print("✓ Sync history cleared for metadata tables.")
+            WHERE table_name IN (
+                {quoted_tables}
+            )
+            """
+        )
 
-    print("\nMetadata reset completed successfully.")
+        print(
+            "✓ Sync history cleared."
+        )
+
+    print()
+    print(
+        "✓ Metadata reset completed successfully."
+    )

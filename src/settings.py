@@ -77,7 +77,7 @@ TRANSACTION_TABLES = [
 # Synchronisation
 # ============================================================
 
-DEFAULT_BATCH_SIZE = 10000
+DEFAULT_BATCH_SIZE = 100000
 
 REQUEST_TIMEOUT = 120
 
@@ -112,7 +112,7 @@ ENABLE_AUTO_COMPACT = True
 # Logging
 # ============================================================
 
-LOG_PROGRESS_EVERY = 10000
+LOG_PROGRESS_EVERY = 100000
 
 PRINT_API_REQUESTS = False
 
